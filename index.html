@@ -44,23 +44,20 @@
         window.addEventListener('resize', resize);
         resize();
 
-        // 🏃 TRẠNG THÁI NHÂN VẬT CHÍNH
         let px = 0, py = 2, pz = 5; 
         let vx = 0, vy = 0, vz = 0; 
-        let yaw = 0, pitch = -0.15;  
+        let yaw = 0, pitch = -0.2;  
         let isGrounded = false;
         let isWallRunning = false;
         let isSliding = false;
         let myScore = 0;
 
-        // 🌐 NGƯỜI CHƠI KHÁC
         let otherPlayers = {};
 
         let keys = { w: false, a: false, s: false, d: false, space: false, shift: false };
         let isMouseDown = false;
         let previousMousePosition = { x: 0, y: 0 };
 
-        // 🎥 ĐIỀU KHIỂN CHUỘT: GIỮ VÀ KÉO ĐỂ XOAY (BẢO ĐẢM KHÔNG BAO GIỜ ĐƠ)
         window.addEventListener('mousedown', (e) => {
             isMouseDown = true;
             previousMousePosition = { x: e.clientX, y: e.clientY };
@@ -71,14 +68,13 @@
             const deltaX = e.clientX - previousMousePosition.x;
             const deltaY = e.clientY - previousMousePosition.y;
 
-            yaw -= deltaX * 0.005;   // Xoay trái/phải thuận chiều
-            pitch -= deltaY * 0.004; // Xoay lên/xuống thuận chiều
-            pitch = Math.max(-0.6, Math.min(0.6, pitch)); // Giới hạn góc nhìn tránh lộn ngược
+            yaw -= deltaX * 0.005;   
+            pitch -= deltaY * 0.004; 
+            pitch = Math.max(-0.6, Math.min(0.6, pitch)); 
 
             previousMousePosition = { x: e.clientX, y: e.clientY };
         });
 
-        // ĐIỀU KHIỂN BÀN PHÍM
         window.addEventListener('keydown', (e) => handleKey(e, true));
         window.addEventListener('keyup', (e) => handleKey(e, false));
 
@@ -91,25 +87,22 @@
             if(e.code === 'ShiftLeft') keys.shift = isDown;
         }
 
-        // 🧱 BẢN ĐỒ CÁC BỤC CHƯỚNG NGẠI VẬT 3D
         let platforms = [
-            { x: 0,  y: 0,   z: 0,   w: 12, h: 1, d: 12, type: 'normal', col: '#151525' }, // Xuất phát
-            { x: 0,  y: 1.5, z: -14, w: 4,  h: 1, d: 4,  type: 'normal', col: '#00f0ff' }, // Bục 1
-            { x: 6,  y: 3.5, z: -24, w: 4,  h: 1, d: 4,  type: 'normal', col: '#00f0ff' }, // Bục 2
-            { x: -6, y: 5.5, z: -36, w: 1,  h: 5, d: 12, type: 'wall',   col: '#ff007f' }, // Tường Wall Run
-            { x: 0,  y: 4.5, z: -50, w: 6,  h: 1, d: 6,  type: 'normal', col: '#00f0ff' }, // Bục 3
-            { x: 0,  y: 4.7, z: -50, w: 2,  h: 0.4, d: 2, type: 'bounce', col: '#ffff00' }, // Bục lò xo
-            { x: 0,  y: 10,  z: -68, w: 4,  h: 1, d: 4,  type: 'moving', col: '#9900ff', startX: 0, range: 6, speed: 0.06, dir: 1 }, // Bục di động
-            { x: 0,  y: 9,   z: -88, w: 10, h: 1, d: 10, type: 'normal', col: '#00ff88' }  // Vạch Đích
+            { x: 0,  y: 0,   z: 0,   w: 12, h: 1, d: 12, type: 'normal', col: '#151525' }, 
+            { x: 0,  y: 1.5, z: -14, w: 4,  h: 1, d: 4,  type: 'normal', col: '#00f0ff' }, 
+            { x: 6,  y: 3.5, z: -24, w: 4,  h: 1, d: 4,  type: 'normal', col: '#00f0ff' }, 
+            { x: -6, y: 5.5, z: -36, w: 1,  h: 5, d: 12, type: 'wall',   col: '#ff007f' }, 
+            { x: 0,  y: 4.5, z: -50, w: 6,  h: 1, d: 6,  type: 'normal', col: '#00f0ff' }, 
+            { x: 0,  y: 4.7, z: -50, w: 2,  h: 0.4, d: 2, type: 'bounce', col: '#ffff00' }, 
+            { x: 0,  y: 10,  z: -68, w: 4,  h: 1, d: 4,  type: 'moving', col: '#9900ff', startX: 0, range: 6, speed: 0.06, dir: 1 }, 
+            { x: 0,  y: 9,   z: -88, w: 10, h: 1, d: 10, type: 'normal', col: '#00ff88' }  
         ];
 
-        // 🧮 THUẬT TOÁN ĐỒ HỌA 3D TOÁN HỌC THUẦN TÚY
         function project(x, y, z) {
             let dx = x - px;
-            let dy = y - (py + (isSliding ? 1.8 : 2.5)); // Đặt camera ở góc nhìn thứ 3, hơi cao phía sau gáy nhân vật
+            let dy = y - (py + (isSliding ? 1.5 : 2.2)); 
             let dz = z - pz;
 
-            // Xoay ma trận camera
             let rx = dx * Math.cos(yaw) - dz * Math.sin(yaw);
             let rz = dx * Math.sin(yaw) + dz * Math.cos(yaw);
             let ry = dy * Math.cos(pitch) - rz * Math.sin(pitch);
@@ -121,38 +114,47 @@
             return { x: canvas.width / 2 + (rx * fov) / fz, y: canvas.height / 2 + (ry * fov) / fz, scale: fov / fz, depth: fz };
         }
 
-        // HÀM TỰ VẼ KHỐI 3D LÊN CANVAS 2D
         function drawCube(x, y, z, w, h, d, color) {
             let hw = w/2, hh = h/2, hd = d/2;
             let vertices = [
-                {x: x - hw, y: y + hh, z: z - hd}, {x: x + hw, y: y + hh, z: z - hd},
-                {x: x + hw, y: y - hh, z: z - hd}, {x: x - hw, y: y - hh, z: z - hd},
-                {x: x - hw, y: y + hh, z: z + hd}, {x: x + hw, y: y + hh, z: z + hd},
-                {x: x + hw, y: y - hh, z: z + hd}, {x: x - hw, y: y - hh, z: z + hd}
+                {x: x - hw, y: y + hh, z: z - hd}, 
+                {x: x + hw, y: y + hh, z: z - hd}, 
+                {x: x + hw, y: y - hh, z: z - hd}, 
+                {x: x - hw, y: y - hh, z: z - hd}, 
+                {x: x - hw, y: y + hh, z: z + hd}, 
+                {x: x + hw, y: y + hh, z: z + hd}, 
+                {x: x + hw, y: y - hh, z: z + hd}, 
+                {x: x - hw, y: y - hh, z: z + hd}  
             ];
 
             let pts = vertices.map(v => project(v.x, v.y, v.z));
+            
             let faces = [
-                [0, 1, 2, 3], [4, 5, 6, 7], [0, 4, 7, 3],
-                [1, 5, 6, 2], [0, 1, 5, 4], [3, 2, 6, 7]
+                [0, 1, 2, 3], 
+                [1, 5, 6, 2], 
+                [5, 4, 7, 6], 
+                [4, 0, 3, 7], 
+                [4, 5, 1, 0], 
+                [3, 2, 6, 7]  
             ];
 
             faces.forEach(f => {
                 if (!pts[f[0]] || !pts[f[1]] || !pts[f[2]] || !pts[f[3]]) return;
+                
                 ctx.beginPath();
                 ctx.moveTo(pts[f[0]].x, pts[f[0]].y);
                 ctx.lineTo(pts[f[1]].x, pts[f[1]].y);
                 ctx.lineTo(pts[f[2]].x, pts[f[2]].y);
                 ctx.lineTo(pts[f[3]].x, pts[f[3]].y);
                 ctx.closePath();
+
                 ctx.fillStyle = color;
                 ctx.fill();
-                ctx.strokeStyle = 'rgba(255,255,255,0.18)'; 
+                ctx.strokeStyle = 'rgba(255,255,255,0.2)'; 
                 ctx.stroke();
             });
         }
 
-        // 🌐 KẾT NỐI MULTIPLAYER ONLINE TRÊN VERCEL
         socket.on('currentPlayers', (players) => {
             Object.keys(players).forEach((id) => {
                 if (id !== socket.id) otherPlayers[id] = players[id];
@@ -173,7 +175,6 @@
             });
         }
 
-        // 🎮 VÒNG LẶP LOGIC VẬT LÝ & ĐỒ HỌA GAME
         function loop() {
             let moveX = 0, moveZ = 0;
             if (keys.w) moveZ -= 1; if (keys.s) moveZ += 1;
@@ -182,7 +183,6 @@
             let currentSpeed = 0.08;
             let stateText = "Đang đứng";
 
-            // Cơ chế Slide (Trượt dài)
             if (keys.shift && isGrounded && (keys.w || keys.a || keys.s || keys.d)) {
                 isSliding = true;
                 currentSpeed = 0.15;
@@ -206,9 +206,24 @@
 
             px += vx; py += vy; pz += vz;
 
-            // Di chuyển bục di động
             platforms.forEach(plat => {
                 if (plat.type === 'moving') {
                     plat.x += plat.speed * plat.dir;
                     if (Math.abs(plat.x - plat.startX) > plat.range) plat.dir *= -1;
-}});// Xử lý va chạm đứng trên bụcisGrounded = false;let hitPlatformIdx = -1;platforms.forEach((plat, idx) => {let hw = plat.w/2, hd = plat.d/2, hh = plat.h/2;if (px >= plat.x - hw && px <= plat.x + hw && pz >= plat.z - hd && pz <= plat.z + hd) {let topY = plat.y + hh;if (py <= topY && py >= topY + vy - 0.25) {py = topY; vy = 0; isGrounded = true; hitPlatformIdx = idx;if (plat.type === 'bounce') { vy = 0.165; isGrounded = false; }if (plat.type === 'moving') px += plat.speed * plat.dir;}}});// Tính điểmif (isGrounded && hitPlatformIdx > myScore) {myScore = hitPlatformIdx;document.getElementById('my-score').innerText = myScore;socket.emit('updateScore', myScore);}// Cơ chế Wall Runif (!isGrounded && keys.w) {let onWall = false;platforms.forEach(plat => {if (plat.type === 'wall') {if (py >= plat.y - plat.h/2 && py <= plat.y + plat.h/2) {if (Math.abs(px - plat.x) <= plat.w/2 + 0.6 && pz >= plat.z - plat.d/2 && pz <= plat.z + plat.d/2) onWall = true;}}});isWallRunning = onWall;} else { isWallRunning = false; }// Nút nhảy Spaceif (keys.space) {if (isGrounded) { vy = 0.115; isGrounded = false; }else if (isWallRunning) { vy = 0.125; px += Math.sin(yaw) * 0.2; isWallRunning = false; }}if(!isGrounded && !isWallRunning) stateText = "✈️ Đang trên không";document.getElementById('state-text').innerText = stateText;// Vực sâu hồi sinhif (py < -15) { px = 0; py = 2; pz = 5; vx = 0; vy = 0; vz = 0; }// Đồng bộ vị trí lên Vercelsocket.emit('playerMovement', { x: px, y: py, z: pz });// RENDER KHUNG CẢNH 3Dctx.clearRect(0, 0, canvas.width, canvas.height);let renderQueue = [];// Đưa map vào hàng đợi vẽplatforms.forEach(plat => {renderQueue.push({ zIndex: plat.z, draw: () => drawCube(plat.x, plat.y, plat.z, plat.w, plat.h, plat.d, plat.col) });});// Đưa người chơi khác vào hàng đợi vẽ (Màu đỏ neon rực rỡ)Object.keys(otherPlayers).forEach(id => {let p = otherPlayers[id];renderQueue.push({ zIndex: p.z, draw: () => drawCube(p.x, p.y, p.z, 1, 2, 1, '#ff0055') });});// Vẽ chính bản thân bạn dưới dạng một khối hộp màu xanh Neon (Góc nhìn từ sau gáy)renderQueue.push({ zIndex: pz, draw: () => drawCube(px, py, pz, 1, 2, 1, '#00f0ff') });// Sắp xếp vẽ từ xa tới gần (Depth Sorting) giúp 3D chuẩn hóa hoàn toànrenderQueue.sort((a, b) => a.zIndex - b.zIndex).forEach(item => item.draw());requestAnimationFrame(loop);}loop();
+                }
+            });
+
+            isGrounded = false;
+            let hitPlatformIdx = -1;
+
+            platforms.forEach((plat, idx) => {
+                let hw = plat.w/2, hd = plat.d/2, hh = plat.h/2;
+                if (px >= plat.x - hw && px <= plat.x + hw && pz >= plat.z - hd && pz <= plat.z + hd) {
+                    let topY = plat.y + hh;
+                    if (py <= topY && py >= topY + vy - 0.25) {
+                        py = topY; vy = 0; isGrounded = true; hitPlatformIdx = idx;
+                        if (plat.type === 'bounce') { vy = 0.165; isGrounded = false; } 
+                        if (plat.type === 'moving') px += plat.speed * plat.dir; 
+                    }
+                }
+});if (isGrounded && hitPlatformIdx > myScore) {myScore = hitPlatformIdx;document.getElementById('my-score').innerText = myScore;socket.emit('updateScore', myScore);}if (!isGrounded && keys.w) {let onWall = false;platforms.forEach(plat => {if (plat.type === 'wall') {if (py >= plat.y - plat.h/2 && py <= plat.y + plat.h/2) {if (Math.abs(px - plat.x) <= plat.w/2 + 0.6 && pz >= plat.z - plat.d/2 && pz <= plat.z + plat.d/2) onWall = true;}}});isWallRunning = onWall;} else { isWallRunning = false; }if (keys.space) {if (isGrounded) { vy = 0.115; isGrounded = false; }else if (isWallRunning) { vy = 0.125; px += Math.sin(yaw) * 0.2; isWallRunning = false; }}if(!isGrounded && !isWallRunning) stateText = "✈️ Đang trên không";document.getElementById('state-text').innerText = stateText;if (py < -15) { px = 0; py = 2; pz = 5; vx = 0; vy = 0; vz = 0; }socket.emit('playerMovement', { x: px, y: py, z: pz });ctx.clearRect(0, 0, canvas.width, canvas.height);let renderQueue = [];platforms.forEach(plat => {renderQueue.push({ zIndex: plat.z, draw: () => drawCube(plat.x, plat.y, plat.z, plat.w, plat.h, plat.d, plat.col) });});Object.keys(otherPlayers).forEach(id => {let p = otherPlayers[id];renderQueue.push({ zIndex: p.z, draw: () => drawCube(p.x, p.y, p.z, 1, 2, 1, '#ff0055') });});renderQueue.push({ zIndex: pz, draw: () => drawCube(px, py, pz, 1, 2, 1, '#00f0ff') });renderQueue.sort((a, b) => a.zIndex - b.zIndex).forEach(item => item.draw());requestAnimationFrame(loop);}loop();
