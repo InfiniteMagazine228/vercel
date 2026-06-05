@@ -3,216 +3,196 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>3D Cyber Parkour Online - Fixed</title>
+    <title>3D Mini Parkour - Siêu Mượt Không Lỗi</title>
     <style>
-        body { margin: 0; overflow: hidden; font-family: 'Segoe UI', sans-serif; background: #0b0b12; user-select: none; }
-        #ui { position: absolute; top: 15px; left: 15px; color: white; background: rgba(11, 11, 18, 0.85); padding: 15px; border-radius: 10px; pointer-events: none; border: 2px solid #00f0ff; box-shadow: 0 0 15px rgba(0, 240, 255, 0.3); }
-        #leaderboard { position: absolute; top: 15px; right: 15px; color: white; background: rgba(11, 11, 18, 0.85); padding: 15px; border-radius: 10px; pointer-events: none; border: 2px solid #ff007f; min-width: 180px; box-shadow: 0 0 15px rgba(255, 0, 127, 0.3); }
-        #notice { position: absolute; bottom: 20px; width: 100%; text-align: center; color: #00f0ff; font-weight: bold; font-size: 16px; pointer-events: none; text-shadow: 0 0 8px #00f0ff; }
-        h3 { margin: 0 0 10px 0; border-bottom: 1px solid #444; padding-bottom: 5px; }
-        .key { background: #333; padding: 2px 6px; border-radius: 4px; border: 1px solid #666; font-weight: bold; color: #fff; }
+        body { margin: 0; overflow: hidden; background: #05050a; font-family: sans-serif; color: white; user-select: none; }
+        #canvas { display: block; width: 100vw; height: 100vh; }
+        #ui { position: absolute; top: 15px; left: 15px; background: rgba(0,0,0,0.8); padding: 15px; border-radius: 8px; border: 2px solid #00f0ff; pointer-events: none; }
+        .key { background: #333; padding: 2px 5px; border-radius: 3px; font-weight: bold; }
     </style>
-    <script src="https://cloudflare.com"></script>
-    <script src="https://cloudflare.com"></script>
 </head>
 <body>
 
     <div id="ui">
-        <h3 style="color: #00f0ff;">⚡ HƯỚNG DẪN CƠ BẢN</h3>
-        <p>🏃 Di chuyển: <span class="key">W</span> <span class="key">A</span> <span class="key">S</span> <span class="key">D</span></p>
-        <p>🎥 Xoay camera: <b>Giữ chuột trái và Kéo đi kéo lại</b></p>
-        <p>🚀 Nhảy / Chạy tường: <span class="key">Space</span></p>
-        <p>🔥 Trượt dài (Slide): <span class="key">Shift</span></p>
-        <p>🏆 Điểm của bạn: <span id="my-score" style="color: #00ff88; font-weight:bold;">0</span></p>
-        <p>🌐 Mạng: <span id="status" style="color: #00ff88;">Đang kết nối...</span></p>
+        <h2 style="margin:0 0 10px 0; color:#00f0ff;">🏃 3D PARKOUR MINI</h2>
+        <p>🕹️ Di chuyển: <span class="key">W</span> <span class="key">A</span> <span class="key">S</span> <span class="key">D</span></p>
+        <p>🎥 Xoay nhìn: <b>Giữ chuột trái và Kéo rê chuột</b></p>
+        <p>🚀 Nhảy cao: <span class="key">Space</span></p>
+        <p>🏆 Điểm bục: <span id="score" style="color:#00ff88; font-weight:bold;">0</span></p>
     </div>
 
-    <div id="leaderboard">
-        <h3 style="color: #ff007f;">🏆 BẢNG XẾP HẠNG</h3>
-        <div id="player-list"></div>
-    </div>
-
-    <div id="notice">🎮 GAME ĐÃ SẴN SÀNG - GIỮ CHUỘT VÀ KÉO ĐỂ XOAY GÓC NHÌN!</div>
+    <canvas id="canvas"></canvas>
 
     <script>
-        const socket = io({ path: '/socket.io/', transports: ['polling'] });
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
 
-        let scene, camera, renderer;
-        let localPlayer, playerMesh;
-        let otherPlayers = {};
-        let keys = { w: false, a: false, s: false, d: false, space: false, shift: false };
-        
-        // Điều khiển camera bằng cách giữ và kéo chuột (Roblox Style)
-        let isMouseDown = false;
-        let previousMousePosition = { x: 0, y: 0 };
-        let pitch = -0.2, yaw = 0; // Đặt góc nhìn ban đầu hơi cúi xuống một chút để thấy bục rõ ràng
+        // Khớp kích thước màn hình
+        function resize() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+        window.addEventListener('resize', resize);
+        resize();
 
-        // Cơ chế vật lý & Parkour nâng cao
-        let velocity = new THREE.Vector3();
+        // Biến điều khiển người chơi
+        let px = 0, py = 2, pz = 5; // Vị trí người chơi
+        let vx = 0, vy = 0, vz = 0; // Vận tốc
+        let yaw = 0, pitch = -0.2;  // Góc nhìn camera
         let isGrounded = false;
-        let isWallRunning = false;
-        let isSliding = false;
-        let myScore = 0;
+        let score = 0;
 
-        let platforms = [];
-        let bouncePads = [];
-        let movingPlatforms = [];
+        let keys = { w: false, a: false, s: false, d: false, space: false };
+        let isMouseDown = false;
+        let lastMouse = { x: 0, y: 0 };
 
-        const GRAVITY = -0.007;
-        const JUMP_FORCE = 0.16;
-        const NORMAL_SPEED = 0.08;
-        const SLIDE_SPEED = 0.16;
-
-        // Xử lý sự kiện kéo giữ chuột để xoay góc nhìn camera
-        window.addEventListener('mousedown', (e) => {
-            isMouseDown = true;
-            previousMousePosition = { x: e.clientX, y: e.clientY };
-        });
-
+        // Bắt sự kiện chuột (Kéo giữ để xoay)
+        window.addEventListener('mousedown', (e) => { isMouseDown = true; lastMouse = { x: e.clientX, y: e.clientY }; });
+        window.addEventListener('mouseup', () => isMouseDown = false);
         window.addEventListener('mousemove', (e) => {
             if (!isMouseDown) return;
-            
-            const deltaX = e.clientX - previousMousePosition.x;
-            const deltaY = e.clientY - previousMousePosition.y;
-
-            yaw -= deltaX * 0.005;
-            pitch -= deltaY * 0.005;
-            
-            // Giới hạn góc ngước lên/ngó xuống để camera không bị lộn ngược đầu
-            pitch = Math.max(-Math.PI / 2.5, Math.min(Math.PI / 2.5, pitch));
-
-            previousMousePosition = { x: e.clientX, y: e.clientY };
+            let dx = e.clientX - lastMouse.x;
+            let dy = e.clientY - lastMouse.y;
+            yaw -= dx * 0.007;
+            pitch -= dy * 0.005;
+            pitch = Math.max(-0.8, Math.min(0.8, pitch));
+            lastMouse = { x: e.clientX, y: e.clientY };
         });
 
-        window.addEventListener('mouseup', () => { isMouseDown = false; });
-
-        function init() {
-            scene = new THREE.Scene();
-            scene.background = new THREE.Color(0x05050a);
-            scene.fog = new THREE.FogExp2(0x05050a, 0.015);
-
-            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-
-            renderer = new THREE.WebGLRenderer({ antialias: true });
-            renderer.setSize(window.innerWidth, window.innerHeight);
-            document.body.appendChild(renderer.domElement);
-
-            // Hệ thống ánh sáng lung linh
-            scene.add(new THREE.AmbientLight(0xffffff, 0.3));
-            let light1 = new THREE.DirectionLight(0x00f0ff, 0.8);
-            light1.position.set(20, 40, 20);
-            scene.add(light1);
-            let light2 = new THREE.DirectionLight(0xff007f, 0.5);
-            light2.position.set(-20, 30, -20);
-            scene.add(light2);
-
-            // KHỞI TẠO MAP CHƯỚNG NGẠI VẬT PARKOUR
-            createPlatform(0, 0, 0, 15, 1, 15, 0x11111f); // Sàn xuất phát chính
-            createPlatform(0, 2, -14, 4, 1, 4, 0x00f0ff);  // Bục 1
-            createPlatform(6, 4.5, -22, 5, 1, 4, 0x00f0ff); // Bục 2
-            createPlatform(-6, 7, -32, 1, 6, 14, 0xff007f);  // Bức tường Wall Run (Màu hồng hồng)
-            createPlatform(0, 6, -45, 6, 1, 6, 0x00f0ff);  // Bục 3
-            
-            createBouncePad(0, 6.2, -45, 2, 0.4, 2); // Bục nhảy lò xo siêu cao (Màu vàng)
-            createMovingPlatform(0, 14, -60, 5, 1, 5, 8); // Bục tự động di chuyển tịnh tiến (Màu tím)
-            
-            createPlatform(0, 13, -80, 10, 1, 10, 0x00ff88); // Đích cuối cùng
-
-            window.addEventListener('keydown', (e) => handleKey(e, true));
-            window.addEventListener('keyup', (e) => handleKey(e, false));
-            window.addEventListener('resize', onWindowResize);
-        }
-
-        function createPlatform(x, y, z, w, h, d, color) {
-            const geo = new THREE.BoxGeometry(w, h, d);
-            const mat = new THREE.MeshStandardMaterial({ color: color, roughness: 0.4 });
-            const mesh = new THREE.Mesh(geo, mat);
-            mesh.position.set(x, y, z);
-            scene.add(mesh);
-            platforms.push(mesh);
-        }
-
-        function createBouncePad(x, y, z, w, h, d) {
-            const geo = new THREE.BoxGeometry(w, h, d);
-            const mat = new THREE.MeshStandardMaterial({ color: 0xffff00, emissive: 0x555500 });
-            const mesh = new THREE.Mesh(geo, mat);
-            mesh.position.set(x, y, z);
-            scene.add(mesh);
-            bouncePads.push(mesh);
-        }
-
-        function createMovingPlatform(x, y, z, w, h, d, range) {
-            const geo = new THREE.BoxGeometry(w, h, d);
-            const mat = new THREE.MeshStandardMaterial({ color: 0x9900ff });
-            const mesh = new THREE.Mesh(geo, mat);
-            mesh.position.set(x, y, z);
-            scene.add(mesh);
-            movingPlatforms.push({ mesh: mesh, startX: x, range: range, speed: 0.05, dir: 1 });
-        }
-
-        function handleKey(e, isDown) {
-            if (e.code === 'KeyW') keys.w = isDown;
-            if (e.code === 'KeyS') keys.s = isDown;
-            if (e.code === 'KeyA') keys.a = isDown;
-            if (e.code === 'KeyD') keys.d = isDown;
-            if (e.code === 'Space') keys.space = isDown;
-            if (e.code === 'ShiftLeft') keys.shift = isDown;
-        }
-
-        // MẠNG MULTIPLAYER ONLINE
-        socket.on('connect', () => {
-            document.getElementById('status').innerText = "Trực tuyến (Mượt)";
-            document.getElementById('status').style.color = "#00f0ff";
+        // Bắt sự kiện bàn phím
+        window.addEventListener('keydown', (e) => {
+            if(e.code==='KeyW') keys.w=true; if(e.code==='KeyS') keys.s=true;
+            if(e.code==='KeyA') keys.a=true; if(e.code==='KeyD') keys.d=true;
+            if(e.code==='Space') keys.space=true;
+        });
+        window.addEventListener('keyup', (e) => {
+            if(e.code==='KeyW') keys.w=false; if(e.code==='KeyS') keys.s=false;
+            if(e.code==='KeyA') keys.a=false; if(e.code==='KeyD') keys.d=false;
+            if(e.code==='Space') keys.space=false;
         });
 
-        socket.on('currentPlayers', (players) => {
-            Object.keys(players).forEach((id) => {
-                if (id === socket.id) {
-                    const geo = new THREE.BoxGeometry(1, 2, 1);
-                    const mat = new THREE.MeshStandardMaterial({ color: 0x00f0ff });
-                    playerMesh = new THREE.Mesh(geo, mat);
-                    playerMesh.position.set(0, 2, 0); // Vị trí xuất phát an toàn trên sàn chính
-                    scene.add(playerMesh);
-                    localPlayer = players[id];
-                } else {
-                    addOtherPlayer(id, players[id]);
+        // Định nghĩa các khối bục 3D (X, Y, Z, Rộng, Cao, Sâu, Màu sắc)
+        let platforms = [
+            {x: 0,  y: 0, z: 0,   w: 6, h: 1, d: 6,  col: '#111122'}, // Sàn xuất phát
+            {x: 0,  y: 1, z: -10, w: 3, h: 1, d: 3,  col: '#00f0ff'}, // Bục 1
+            {x: 4,  y: 2, z: -18, w: 3, h: 1, d: 3,  col: '#ff007f'}, // Bục 2
+            {x: -3, y: 3, z: -26, w: 3, h: 1, d: 3,  col: '#ffff00'}, // Bục 3
+            {x: 0,  y: 4, z: -35, w: 5, h: 1, d: 5,  col: '#00ff88'}  // Đích
+        ];
+
+        // Hàm chiếu tọa độ 3D thành 2D trên màn hình phẳng
+        function project(x, y, z) {
+            // Chuyển đổi hệ tọa độ tương đối theo Camera vị trí người chơi
+            let dx = x - px;
+            let dy = y - (py + 0.5); // Chiều cao mắt nhìn
+            let dz = z - pz;
+
+            // Xoay theo trục Yaw (Trái / Phải)
+            let rx = dx * Math.cos(yaw) - dz * Math.sin(yaw);
+            let rz = dx * Math.sin(yaw) + dz * Math.cos(yaw);
+            
+            // Xoay theo trục Pitch (Lên / Xuống)
+            let ry = dy * Math.cos(pitch) - rz * Math.sin(pitch);
+            let fz = dy * Math.sin(pitch) + rz * Math.cos(pitch);
+
+            if (fz <= 0.1) return null; // Vật thể ở phía sau lưng camera
+
+            // Thuật toán thấu kính tiêu cự phối cảnh 3D
+            const fov = 400; 
+            let cx = canvas.width / 2 + (rx * fov) / fz;
+            let cy = canvas.height / 2 + (ry * fov) / fz;
+            return { x: cx, y: cy, scale: fov / fz };
+        }
+
+        // Hàm vẽ một khối hộp 3D thủ công bằng Canvas 2D
+        function drawCube(p) {
+            let vertices = [
+                {x: p.x - p.w/2, y: p.y + p.h/2, z: p.z - p.d/2},
+                {x: p.x + p.w/2, y: p.y + p.h/2, z: p.z - p.d/2},
+                {x: p.x + p.w/2, y: p.y - p.h/2, z: p.z - p.d/2},
+                {x: p.x - p.w/2, y: p.y - p.h/2, z: p.z - p.d/2},
+                {x: p.x - p.w/2, y: p.y + p.h/2, z: p.z + p.d/2},
+                {x: p.x + p.w/2, y: p.y + p.h/2, z: p.z + p.d/2},
+                {x: p.x + p.w/2, y: p.y - p.h/2, z: p.z + p.d/2},
+                {x: p.x - p.w/2, y: p.y - p.h/2, z: p.z + p.d/2}
+            ];
+
+            let pts = vertices.map(v => project(v.x, v.y, v.z));
+            
+            // Định nghĩa các mặt của hình hộp (mỗi mặt gồm 4 đỉnh nối vào nhau)
+            let faces = [
+                [0, 1, 2, 3], [4, 5, 6, 7], [0, 1, 5, 4], [2, 3, 7, 6], [0, 3, 7, 4], [1, 2, 6, 5]
+            ];
+
+            faces.forEach(f => {
+                if (!pts[f[0]] || !pts[f[1]] || !pts[f[2]] || !pts[f[3]]) return;
+                
+                ctx.beginPath();
+                ctx.moveTo(pts[f[0]].x, pts[f[0]].y);
+                ctx.lineTo(pts[f[1]].x, pts[f[1]].y);
+                ctx.lineTo(pts[f[2]].x, pts[f[2]].y);
+                ctx.lineTo(pts[f[3]].x, pts[f[3]].y);
+                ctx.closePath();
+
+                ctx.fillStyle = p.col;
+                ctx.fill();
+                ctx.strokeStyle = 'rgba(255,255,255,0.2)';
+                ctx.stroke();
+            });
+        }
+
+        // VÒNG LẶP GAME LOOP CHÍNH
+        function loop() {
+            // 1. Tính toán hướng di chuyển vật lý
+            let moveX = 0, moveZ = 0;
+            if (keys.w) moveZ -= 1; if (keys.s) moveZ += 1;
+            if (keys.a) moveX -= 1; if (keys.d) moveX += 1;
+
+            let speed = 0.08;
+            let fx = moveX * Math.cos(yaw) - moveZ * Math.sin(yaw);
+            let fz = moveX * Math.sin(yaw) + moveZ * Math.cos(yaw);
+            
+            let mag = Math.sqrt(fx*fx + fz*fz);
+            if(mag > 0) { fx /= mag; fz /= mag; vx = fx * speed; vz = fz * speed; } 
+            else { vx *= 0.8; vz *= 0.8; }
+
+            // Áp dụng trọng lực rơi tự do
+            vy -= 0.005;
+            
+            px += vx; py += vy; pz += vz;
+
+            // 2. Xử lý va chạm đứng vững trên bục
+            isGrounded = false;
+            platforms.forEach((plat, idx) => {
+                if (px >= plat.x - plat.w/2 && px <= plat.x + plat.w/2 &&
+                    pz >= plat.z - plat.d/2 && pz <= plat.z + plat.d/2) {
+                    
+                    let topY = plat.y + plat.h/2;
+                    if (py <= topY && py >= topY + vy - 0.2) {
+                        py = topY;
+                        vy = 0;
+                        isGrounded = true;
+                        if(idx > score) { score = idx; document.getElementById('score').innerText = score; }
+                    }
                 }
             });
-            updateLeaderboard(players);
-        });
 
-        socket.on('newPlayer', (playerInfo) => {
-            addOtherPlayer(playerInfo.id, playerInfo);
-        });
+            // Lệnh nhảy khi dẫm đất
+            if (keys.space && isGrounded) { vy = 0.12; isGrounded = false; }
 
-        socket.on('playerMoved', (playerInfo) => {
-            if (otherPlayers[playerInfo.id]) {
-                otherPlayers[playerInfo.id].position.set(playerInfo.x, playerInfo.y, playerInfo.z);
-            }
-        });
+            // Rơi xuống vực sâu rớt mạng -> Hồi sinh tại chỗ xuất phát
+            if (py < -10) { px = 0; py = 2; pz = 5; vy = 0; }
 
-        socket.on('playerDisconnected', (id) => {
-            if (otherPlayers[id]) {
-                scene.remove(otherPlayers[id]);
-                delete otherPlayers[id];
-            }
-        });
+            // 3. Xóa màn hình cũ và Vẽ khung cảnh mới
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // Vẽ các bục chướng ngại vật từ xa tới gần (Sắp xếp theo chiều sâu trục Z để không bị đè lỗi)
+            platforms.sort((a,b) => b.z - a.z).forEach(drawCube);
 
-        function addOtherPlayer(id, info) {
-            if (otherPlayers[id]) return;
-            const geo = new THREE.BoxGeometry(1, 2, 1);
-            const mat = new THREE.MeshStandardMaterial({ color: info.color || 0xff007f });
-            const mesh = new THREE.Mesh(geo, mat);
-            mesh.position.set(info.x, info.y, info.z);
-            scene.add(mesh);
-            otherPlayers[id] = mesh;
+            requestAnimationFrame(loop);
         }
 
-        function updateLeaderboard(players) {
-            const list = document.getElementById('player-list');
-            list.innerHTML = '';
-            Object.keys(players).forEach(id => {
-                const p = players[id];
-                const name = id === socket.id ? "Bạn 😎" : `User_${id.substring(0,4)}`;
-                const score = p.score || 0;
-list.innerHTML += <p>${name}: <b style="color:#00ff88">${score} bục</b></p>;});}// VÒNG LẶP CHẠY LOGIC VÀ VẬT LÝ GAMEfunction animate() {requestAnimationFrame(animate);// Cập nhật vị trí bục di độngmovingPlatforms.forEach(p => {p.mesh.position.x += p.speed * p.dir;if (Math.abs(p.mesh.position.x - p.startX) > p.range) p.dir *= -1;});if (playerMesh && localPlayer) {// Đồng bộ góc nhìn camera theo chuột (Góc nhìn thứ 3 bám sát sau gáy nhân vật)playerMesh.rotation.y = yaw;// Thuật toán đặt camera sau lưng nhân vật dựa vào khoảng cách ma trận góc quay chuộtconst offset = new THREE.Vector3(0, isSliding ? 2.5 : 4, 8);offset.applyAxisAngle(new THREE.Vector3(1, 0, 0), pitch);offset.applyAxisAngle(new THREE.Vector3(0, 1, 0), yaw);camera.position.copy(playerMesh.position).add(offset);camera.lookAt(playerMesh.position.x, playerMesh.position.y + 0.5, playerMesh.position.z);// Tính toán hướng di chuyểnlet moveX = 0, moveZ = 0;if (keys.w) moveZ -= 1;if (keys.s) moveZ += 1;if (keys.a) moveX -= 1;if (keys.d) moveX += 1;let currentSpeed = NORMAL_SPEED;// Cơ chế Slide (Trượt dài)if (keys.shift && isGrounded && (keys.w || keys.a || keys.s || keys.d)) {if (!isSliding) {isSliding = true;playerMesh.scale.y = 0.5;}currentSpeed = SLIDE_SPEED;} else if (!keys.shift && isSliding) {isSliding = false;playerMesh.scale.y = 1.0;}let inputVec = new THREE.Vector3(moveX, 0, moveZ).normalize();inputVec.applyAxisAngle(new THREE.Vector3(0, 1, 0), yaw);velocity.x = inputVec.x * currentSpeed;velocity.z = inputVec.z * currentSpeed;// Trọng lực rơi tự doif (!isWallRunning) {velocity.y += GRAVITY;} else {velocity.y = -0.01;}playerMesh.position.add(velocity);// XỬ LÝ VA CHẠM THỰC TẾlet pX = playerMesh.position.x;let pY = playerMesh.position.y;let pZ = playerMesh.position.z;let pHeight = isSliding ? 1.0 : 2.0;isGrounded = false;let hitPlatformIdx = -1;// 1. Va chạm bục thườngplatforms.forEach((plat, idx) => {let box = new THREE.Box3().setFromObject(plat);if (pX + 0.5 > box.min.x && pX - 0.5 < box.max.x && pZ + 0.5 > box.min.z && pZ - 0.5 < box.max.z) {if (pY - pHeight/2 <= box.max.y && pY - pHeight/2 >= box.max.y + velocity.y - 0.1) {playerMesh.position.y = box.max.y + pHeight/2;velocity.y = 0;isGrounded = true;hitPlatformIdx = idx;}}});// 2. Va chạm bục nhảy lò xo (Bounce Pad)bouncePads.forEach(pad => {let box = new THREE.Box3().setFromObject(pad);if (pX + 0.5 > box.min.x && pX - 0.5 < box.max.x && pZ + 0.5 > box.min.z && pZ - 0.5 < box.max.z) {if (pY - pHeight/2 <= box.max.y && pY - pHeight/2 >= box.max.y + velocity.y - 0.2) {velocity.y = JUMP_FORCE * 1.8;isGrounded = false;}}});// 3. Va chạm bục di độngmovingPlatforms.forEach(p => {let box = new THREE.Box3().setFromObject(p.mesh);if (pX + 0.5 > box.min.x && pX - 0.5 < box.max.x && pZ + 0.5 > box.min.z && pZ - 0.5 < box.max.z) {if (pY - pHeight/2 <= box.max.y && pY - pHeight/2 >= box.max.y + velocity.y - 0.1) {playerMesh.position.y = box.max.y + pHeight/2;playerMesh.position.x += p.speed * p.dir;velocity.y = 0;isGrounded = true;}}});// Tính điểm tăng dầnif (isGrounded && hitPlatformIdx > myScore) {myScore = hitPlatformIdx;document.getElementById('my-score').innerText = myScore;socket.emit('updateScore', myScore);}// Kiểm tra điều kiện Wall Runif (!isGrounded && keys.w) {let onWall = false;platforms.forEach(plat => {let box = new THREE.Box3().setFromObject(plat);if (pY > box.min.y && pY < box.max.y) {let distLeft = Math.abs((pX - 0.6) - box.max.x);let distRight = Math.abs((pX + 0.6) - box.min.x);if ((distLeft < 0.3 || distRight < 0.3) && pZ > box.min.z && pZ < box.max.z) {onWall = true;}}});isWallRunning = onWall;} else {isWallRunning = false;}// Sự kiện nút nhảy Spaceif (keys.space) {if (isGrounded) {velocity.y = JUMP_FORCE;isGrounded = false;} else if (isWallRunning) {velocity.y = JUMP_FORCE * 1.1;velocity.x += Math.sin(yaw) * 0.1;isWallRunning = false;}}// Vực sâu (Respawn)if (playerMesh.position.y < -15) {playerMesh.position.set(0, 3, 0);velocity.set(0, 0, 0);isGrounded = true;}// Đồng bộ mạng liên tụcsocket.emit('playerMovement', {x: playerMesh.position.x,y: playerMesh.position.y,z: playerMesh.position.z});}renderer.render(scene, camera);}function onWindowResize() {camera.aspect = window.innerWidth / window.innerHeight;camera.updateProjectionMatrix();renderer.setSize(window.innerWidth, window.innerHeight);}init();animate();socket.on('scoreUpdated', (players) => {updateLeaderboard(players);});
+        loop();
+    </script>
+</body>
+</html>
