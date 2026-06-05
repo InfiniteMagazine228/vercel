@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Parkour Vercel Demo</title>
+    <style>
+        body { margin: 0; overflow: hidden; font-family: system-ui, sans-serif; background: #111; }
+        #ui { position: absolute; top: 15px; left: 15px; color: white; background: rgba(0,0,0,0.7); padding: 15px; border-radius: 8px; pointer-events: none; border: 1px solid #333; }
+        h3 { margin: 0 0 8px 0; color: #00ff88; }
+        p { margin: 4px 0; font-size: 14px; }
+    </style>
+    <!-- Tải trực tiếp thư viện từ CDN để không tốn dung lượng upload -->
+    <script src="https://cloudflare.com"></script>
+    <script src="https://cloudflare.com"></script>
+</head>
+<body>
+    <div id="ui">
+        <h3>Parkour 3D Online (Vercel)</h3>
+        <p>🎮 Di chuyển: <b>W, A, S, D</b></p>
+        <p>🚀 Nhảy: <b>Space</b></p>
+        <p>🌐 Mạng: <span id="status" style="color: #ffcc00;">Đang kết nối...</span></p>
+    </div>
+
+    <script>
+        // Khởi tạo socket cấu hình đúng đường dẫn tương thích Vercel
+        const socket = io({
+            path: '/socket.io/',
+            transports: ['polling']
+        });
+
+        let scene, camera, renderer;
+        let localPlayer, playerBox;
+        let otherPlayers = {};
+        let keys = { w: false, a: false, s: false, d: false, space: false };
+        
+        // Cấu hình vật lý nhảy cơ bản
+        let velocityY = 0;
+        const gravity = -0.008;
+        const jumpForce = 0.18;
+        const speed = 0.12;
+        let isGrounded = true;
+
+        function init() {
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x1a1a24);
+            scene.fog = new THREE.FogExp2(0x1a1a24, 0.015);
+
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            document.body.appendChild(renderer.domElement);
+
+            // Ánh sáng môi trường
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
+            scene.add(ambientLight);
+            const dirLight = new THREE.DirectionLight(0x00ff88, 0.8);
+            dirLight.position.set(20, 40, 20);
+            scene.add(dirLight);
+
+            // Mặt đất chính
+            const floorGeo = new THREE.BoxGeometry(60, 1, 60);
+            const floorMat = new THREE.MeshStandardMaterial({ color: 0x222233, roughness: 0.8 });
+            const floor = new THREE.Mesh(floorGeo, floorMat);
+            floor.position.y = -0.5;
+            scene.add(floor);
+
+            // Tạo các bục để nhảy Parkour thử nghiệm
+            createPlatform(0, 1.5, -6, 5, 3, 5, 0xff3366);
+            createPlatform(6, 3.5, -12, 4, 7, 4, 0x33ccff);
+            createPlatform(-6, 5.5, -18, 4, 11, 4, 0xffff33);
+
+            window.addEventListener('keydown', (e) => handleKey(e, true));
+            window.addEventListener('keyup', (e) => handleKey(e, false));
+            window.addEventListener('resize', onWindowResize);
+        }
+
+        function createPlatform(x, y, z, w, h, d, color) {
+            const geo = new THREE.BoxGeometry(w, h, d);
+            const mat = new THREE.MeshStandardMaterial({ color: color, metalness: 0.2, roughness: 0.3 });
+            const mesh = new THREE.Mesh(geo, mat);
+            mesh.position.set(x, y - h/2, z);
+            scene.add(mesh);
+        }
+
+        function handleKey(e, isDown) {
+            if (e.code === 'KeyW') keys.w = isDown;
+            if (e.code === 'KeyS') keys.s = isDown;
+            if (e.code === 'KeyA') keys.a = isDown;
+            if (e.code === 'KeyD') keys.d = isDown;
+            if (e.code === 'Space') keys.space = isDown;
+        }
+
+        // Logic xử lý mạng
+        socket.on('connect', () => {
+            document.getElementById('status').innerText = "Đang chạy (Polling)";
+            document.getElementById('status').style.color = "#00ff88";
+        });
+
+        socket.on('currentPlayers', (players) => {
+            Object.keys(players).forEach((id) => {
+                if (id === socket.id) {
+                    const geo = new THREE.BoxGeometry(1, 2, 1);
+                    const mat = new THREE.MeshStandardMaterial({ color: 0x00ff88 });
+                    playerBox = new THREE.Mesh(geo, mat);
+                    playerBox.position.set(players[id].x, players[id].y, players[id].z);
+                    scene.add(playerBox);
+                    localPlayer = players[id];
+                } else {
+                    addOtherPlayer(id, players[id]);
+                }
+            });
+        });
+
+        socket.on('newPlayer', (playerInfo) => {
+            addOtherPlayer(playerInfo.id, playerInfo);
+        });
+
+        socket.on('playerMoved', (playerInfo) => {
+            if (otherPlayers[playerInfo.id]) {
+                otherPlayers[playerInfo.id].position.set(playerInfo.x, playerInfo.y, playerInfo.z);
+            }
+        });
+
+        socket.on('playerDisconnected', (id) => {
+            if (otherPlayers[id]) {
+                scene.remove(otherPlayers[id]);
+                delete otherPlayers[id];
+            }
+        });
+
+        function addOtherPlayer(id, info) {
+            const geo = new THREE.BoxGeometry(1, 2, 1);
+            const mat = new THREE.MeshStandardMaterial({ color: info.color });
+            const mesh = new THREE.Mesh(geo, mat);
+            mesh.position.set(info.x, info.y, info.z);
+            scene.add(mesh);
+            otherPlayers[id] = mesh;
+        }
+
+        // Vòng lặp Game & Vật lý di chuyển
+        function animate() {
+            requestAnimationFrame(animate);
+
+            if (playerBox && localPlayer) {
+                if (keys.w) playerBox.position.z -= speed;
+                if (keys.s) playerBox.position.z += speed;
+                if (keys.a) playerBox.position.x -= speed;
+                if (keys.d) playerBox.position.x += speed;
+
+                velocityY += gravity;
+                playerBox.position.y += velocityY;
+
+                // Chạm đất ảo (Sàn chính ở mức Y = 1)
+                if (playerBox.position.y <= 1) {
+                    playerBox.position.y = 1;
+                    velocityY = 0;
+                    isGrounded = true;
+                }
+
+                if (keys.space && isGrounded) {
+                    velocityY = jumpForce;
+                    isGrounded = false;
+                }
+
+                // Camera bám sát sau lưng nhân vật mượt mà
+                camera.position.set(playerBox.position.x, playerBox.position.y + 6, playerBox.position.z + 12);
+                camera.lookAt(playerBox.position.x, playerBox.position.y + 1, playerBox.position.z);
+
+                // Đồng bộ dữ liệu liên tục lên Vercel
+                socket.emit('playerMovement', {
+                    x: playerBox.position.x,
+                    y: playerBox.position.y,
+                    z: playerBox.position.z
+                });
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        init();
+        animate();
+    </script>
+</body>
+</html>
