@@ -2,223 +2,203 @@
 <html lang="vi">
 <head>
     <meta charset="UTF-8">
-    <title>3D Cyber Parkour Online - Three.js Stable</title>
+    <title>2D Mario Parkour Online</title>
     <style>
-        body { margin: 0; overflow: hidden; font-family: 'Segoe UI', sans-serif; background: #05050f; user-select: none; }
-        #canvas-container { width: 100vw; height: 100vh; }
-        #ui { position: absolute; top: 15px; left: 15px; color: white; background: rgba(5, 5, 15, 0.85); padding: 15px; border-radius: 10px; pointer-events: none; border: 2px solid #00f0ff; box-shadow: 0 0 10px rgba(0,240,255,0.3); }
-        #leaderboard { position: absolute; top: 15px; right: 15px; color: white; background: rgba(5, 5, 15, 0.85); padding: 15px; border-radius: 10px; pointer-events: none; border: 2px solid #ff007f; min-width: 180px; box-shadow: 0 0 10px rgba(255,0,127,0.3); }
-        .key { background: #333; padding: 2px 5px; border-radius: 4px; font-weight: bold; border: 1px solid #555; }
+        body { margin: 0; overflow: hidden; background: #5c94fc; font-family: 'Segoe UI', sans-serif; color: white; user-select: none; }
+        canvas { display: block; width: 100vw; height: 100vh; }
+        #fps-display { position: absolute; top: 15px; left: 15px; background: rgba(0,0,0,0.7); padding: 12px 15px; border-radius: 8px; border: 2px solid #00ff88; pointer-events: none; box-shadow: 0 0 10px rgba(0,255,136,0.3); font-size: 14px; }
+        #ui { position: absolute; top: 15px; right: 15px; background: rgba(0,0,0,0.7); padding: 15px; border-radius: 8px; border: 2px solid #fff; pointer-events: none; max-width: 250px; box-shadow: 0 0 10px rgba(255,255,255,0.2); }
+        #leaderboard { position: absolute; bottom: 15px; left: 15px; background: rgba(0,0,0,0.7); padding: 15px; border-radius: 8px; border: 2px solid #ffd700; min-width: 160px; pointer-events: none; }
+        .key { background: #333; padding: 2px 5px; border-radius: 3px; font-weight: bold; color: #ffd700; }
+        h3, h2 { margin: 0 0 8px 0; color: #ffd700; }
     </style>
-    <script src="https://cloudflare.com"></script>
     <script src="https://cloudflare.com"></script>
 </head>
 <body>
 
+    <div id="fps-display">
+        <b>FPS: <span id="fps-value" style="color:#00ff88;">60</span></b><br>
+        🏁 Điểm bục: <span id="my-score" style="color:#ffd700; font-weight:bold;">0</span>
+    </div>
+
     <div id="ui">
-        <h3 style="margin:0 0 8px 0; color:#00f0ff;">🏃 CYBER PARKOUR 3D</h3>
-        <p>🕹️ Di chuyển: <span class="key">W</span> <span class="key">A</span> <span class="key">S</span> <span class="key">D</span></p>
-        <p>🎥 Camera: <b>Giữ chuột trái và Kéo rê trên màn hình</b></p>
-        <p>🚀 Nhảy / Tường: <span class="key">Space</span></p>
-        <p>⚡ Trượt (Slide): Giữ <span class="key">Shift trái</span></p>
-        <p>🏆 Điểm của bạn: <span id="my-score" style="color:#00ff88; font-weight:bold;">0</span> bục</p>
+        <h2>🍄 HƯỚNG DẪN</h2>
+        <p>🕹️ Chạy: <span class="key">A</span> (Trái) | <span class="key">D</span> (Phải)</p>
+        <p>🚀 Nhảy cao: <span class="key">Space</span> hoặc <span class="key">W</span></p>
     </div>
 
     <div id="leaderboard">
-        <h3 style="margin:0 0 8px 0; color:#ff007f;">🏆 PHÒNG ONLINE</h3>
+        <h3>🏆 ĐUA TOP</h3>
         <div id="player-list"></div>
     </div>
 
-    <div id="canvas-container"></div>
+    <canvas id="canvas"></canvas>
 
     <script>
         const socket = io({ path: '/socket.io/', transports: ['polling'] });
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
 
-        let scene, camera, renderer, container;
-        let playerMesh; 
-        let otherPlayers = {};
-        let keys = { w: false, a: false, s: false, d: false, space: false, shift: false };
-        
-        let isMouseDown = false;
-        let yaw = 0;   
-        let pitch = -0.3; 
-        let previousMousePosition = { x: 0, y: 0 };
+        function resize() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+        window.addEventListener('resize', resize);
+        resize();
 
-        let velocity = new THREE.Vector3();
+        let px = 100, py = 300;
+        let vx = 0, vy = 0;
+        let pWidth = 30, pHeight = 40;
         let isGrounded = false;
-        let isWallRunning = false;
-        let isSliding = false;
         let myScore = 0;
+        let cameraX = 0;
 
-        let platforms = [];
-        let bouncePads = [];
-        let movingPlatforms = [];
+        let otherPlayers = {};
+        let keys = { a: false, d: false, space: false, w: false };
 
-        const GRAVITY = -0.0065;
-        const JUMP_FORCE = 0.155;
-        const NORMAL_SPEED = 0.08;
-        const SLIDE_SPEED = 0.15;
+        let lastFpsUpdate = 0;
+        let frameCount = 0;
+        let fps = 60;
 
-        window.addEventListener('mousedown', (e) => {
-            isMouseDown = true;
-            previousMousePosition = { x: e.clientX, y: e.clientY };
-        });
-        window.addEventListener('mouseup', () => isMouseDown = false);
-        window.addEventListener('mousemove', (e) => {
-            if (!isMouseDown) return;
-            const deltaX = e.clientX - previousMousePosition.x;
-            const deltaY = e.clientY - previousMousePosition.y;
-
-            yaw -= deltaX * 0.005;
-            pitch -= deltaY * 0.005;
-            pitch = Math.max(-Math.PI / 2.5, Math.min(Math.PI / 4, pitch)); 
-
-            previousMousePosition = { x: e.clientX, y: e.clientY };
-        });
-
-        function init() {
-            container = document.getElementById('canvas-container');
-            
-            scene = new THREE.Scene();
-            scene.background = new THREE.Color(0x050510);
-            scene.fog = new THREE.FogExp2(0x050510, 0.015);
-
-            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-
-            renderer = new THREE.WebGLRenderer({ antialias: true });
-            renderer.setSize(window.innerWidth, window.innerHeight);
-            container.appendChild(renderer.domElement);
-
-            scene.add(new THREE.AmbientLight(0xffffff, 0.3));
-            let light1 = new THREE.DirectionLight(0x00f0ff, 0.8);
-            light1.position.set(20, 40, 20);
-            scene.add(light1);
-            let light2 = new THREE.DirectionLight(0xff007f, 0.5);
-            light2.position.set(-20, 30, -20);
-            scene.add(light2);
-
-            createPlatform(0, 0, 0, 14, 1, 14, 0x111125); 
-            createPlatform(0, 2, -14, 4, 1, 4, 0x00f0ff);  
-            createPlatform(6, 4.5, -24, 5, 1, 4, 0x00f0ff); 
-            createPlatform(-6, 7, -35, 1, 6, 14, 0xff007f);  
-            createPlatform(0, 6, -48, 6, 1, 6, 0x00f0ff);  
-            
-            createBouncePad(0, 6.2, -48, 2, 0.4, 2); 
-            createMovingPlatform(0, 13, -64, 5, 1, 5, 8); 
-            createPlatform(0, 12, -85, 12, 1, 12, 0x00ff88); 
-
-            const geo = new THREE.BoxGeometry(1, 2, 1);
-            const mat = new THREE.MeshStandardMaterial({ color: 0x00f0ff, emissive: 0x002222 });
-            playerMesh = new THREE.Mesh(geo, mat);
-            playerMesh.position.set(0, 2, 0);
-            scene.add(playerMesh);
-
-            window.addEventListener('keydown', (e) => handleKey(e, true));
-            window.addEventListener('keyup', (e) => handleKey(e, false));
-            window.addEventListener('resize', onWindowResize);
-        }
-
-        function createPlatform(x, y, z, w, h, d, color) {
-            const geo = new THREE.BoxGeometry(w, h, d);
-            const mat = new THREE.MeshStandardMaterial({ color: color, roughness: 0.3, metalness: 0.1 });
-            const mesh = new THREE.Mesh(geo, mat);
-            mesh.position.set(x, y, z);
-            scene.add(mesh);
-            platforms.push(mesh);
-        }
-
-        function createBouncePad(x, y, z, w, h, d) {
-            const geo = new THREE.BoxGeometry(w, h, d);
-            const mat = new THREE.MeshStandardMaterial({ color: 0xffff00, emissive: 0x444400 });
-            const mesh = new THREE.Mesh(geo, mat);
-            mesh.position.set(x, y, z);
-            scene.add(mesh);
-            bouncePads.push(mesh);
-        }
-
-        function createMovingPlatform(x, y, z, w, h, d, range) {
-            const geo = new THREE.BoxGeometry(w, h, d);
-            const mat = new THREE.MeshStandardMaterial({ color: 0x9900ff });
-            const mesh = new THREE.Mesh(geo, mat);
-            mesh.position.set(x, y, z);
-            scene.add(mesh);
-            movingPlatforms.push({ mesh: mesh, startX: x, range: range, speed: 0.05, dir: 1 });
-        }
+        window.addEventListener('keydown', (e) => handleKey(e, true));
+        window.addEventListener('keyup', (e) => handleKey(e, false));
 
         function handleKey(e, isDown) {
-            if (e.code === 'KeyW') keys.w = isDown;
-            if (e.code === 'KeyS') keys.s = isDown;
-            if (e.code === 'KeyA') keys.a = isDown;
-            if (e.code === 'KeyD') keys.d = isDown;
+            if (e.code === 'KeyA' || e.code === 'ArrowLeft') keys.a = isDown;
+            if (e.code === 'KeyD' || e.code === 'ArrowRight') keys.d = isDown;
             if (e.code === 'Space') keys.space = isDown;
-            if (e.code === 'ShiftLeft') keys.shift = isDown;
+            if (e.code === 'KeyW') keys.w = isDown;
         }
+
+        let platforms = [
+            { x: 0,    y: 500, w: 400,  h: 100, col: '#b84418' }, 
+            { x: 500,  y: 420, w: 120,  h: 30,  col: '#fcb444' }, 
+            { x: 700,  y: 340, w: 120,  h: 30,  col: '#fcb444' }, 
+            { x: 900,  y: 260, w: 150,  h: 30,  col: '#b84418' }, 
+            { x: 1150, y: 350, w: 100,  h: 200, col: '#00a800' }, 
+            { x: 1350, y: 430, w: 200,  h: 30,  col: '#fcb444' },
+            { x: 1650, y: 500, w: 500,  h: 100, col: '#b84418' }  
+        ];
 
         socket.on('currentPlayers', (players) => {
             Object.keys(players).forEach((id) => {
-                if (id !== socket.id) addOtherPlayer(id, players[id]);
+                if (id !== socket.id) otherPlayers[id] = players[id];
             });
             updateLeaderboard(players);
         });
-
-        socket.on('newPlayer', (info) => { addOtherPlayer(info.id, info); });
-        socket.on('playerMoved', (info) => {
-            if (otherPlayers[info.id]) otherPlayers[info.id].position.set(info.x, info.y, info.z);
-        });
-        socket.on('playerDisconnected', (id) => {
-            if (otherPlayers[id]) { scene.remove(otherPlayers[id]); delete otherPlayers[id]; }
-        });
+        socket.on('newPlayer', (info) => { otherPlayers[info.id] = info; });
+        socket.on('playerMoved', (info) => { if (otherPlayers[info.id]) otherPlayers[info.id] = info; });
+        socket.on('playerDisconnected', (id) => { delete otherPlayers[id]; });
         socket.on('scoreUpdated', (players) => { updateLeaderboard(players); });
-
-        function addOtherPlayer(id, info) {
-            if (otherPlayers[id]) return;
-            const geo = new THREE.BoxGeometry(1, 2, 1);
-            const mat = new THREE.MeshStandardMaterial({ color: info.color || 0xff007f });
-            const mesh = new THREE.Mesh(geo, mat);
-            mesh.position.set(info.x, info.y, info.z);
-            scene.add(mesh);
-            otherPlayers[id] = mesh;
-        }
 
         function updateLeaderboard(players) {
             const list = document.getElementById('player-list');
             list.innerHTML = '';
             Object.keys(players).forEach(id => {
                 const name = id === socket.id ? "Bạn 😎" : `User_${id.substring(0,4)}`;
-                list.innerHTML += `<p style="margin:4px 0;">${name}: <b style="color:#00ff88">${players[id].score || 0} bục</b></p>`;
+                list.innerHTML += `<p style="margin:4px 0;">${name}: <b style="color:#00ff88">${players[id].score || 0}</b></p>`;
             });
         }
 
-        function animate() {
-            requestAnimationFrame(animate);
+        function loop(timestamp) {
+            frameCount++;
+            if (timestamp - lastFpsUpdate >= 1000) {
+                fps = Math.round((frameCount * 1000) / (timestamp - lastFpsUpdate));
+                document.getElementById('fps-value').innerText = fps;
+                frameCount = 0;
+                lastFpsUpdate = timestamp;
+            }
 
-            movingPlatforms.forEach(p => {
-                p.mesh.position.x += p.speed * p.dir;
-                if (Math.abs(p.mesh.position.x - p.startX) > p.range) p.dir *= -1;
+            if (keys.a) vx = -5;
+            else if (keys.d) vx = 5;
+            else vx *= 0.8;
+
+            vy += 0.5; 
+
+            px += vx;
+            py += vy;
+
+            isGrounded = false;
+            let currentPlatformIdx = 0;
+
+            platforms.forEach((plat, idx) => {
+                if (px + pWidth > plat.x && px < plat.x + plat.w) {
+                    if (py + pHeight <= plat.y && py + pHeight + vy >= plat.y) {
+                        py = plat.y - pHeight;
+                        vy = 0;
+                        isGrounded = true;
+                        currentPlatformIdx = idx;
+                    }
+                }
             });
 
-            if (playerMesh) {
-                playerMesh.rotation.y = yaw;
+            if ((keys.space || keys.w) && isGrounded) {
+                vy = -12;
+                isGrounded = false;
+            }
+
+            if (isGrounded && currentPlatformIdx > myScore) {
+                myScore = currentPlatformIdx;
+                document.getElementById('my-score').innerText = myScore;
+                socket.emit('updateScore', myScore);
+            }
+
+            if (py > canvas.height + 100) {
+                px = 100;
+                py = 300;
+                vx = 0;
+                vy = 0;
+            }
+
+            cameraX = px - canvas.width / 4;
+            if (cameraX < 0) cameraX = 0;
+
+            socket.emit('playerMovement', { x: px, y: py, z: 0 });
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            ctx.save();
+            ctx.translate(-cameraX, 0);
+
+            ctx.fillStyle = '#f8d870';
+            ctx.beginPath();
+            ctx.arc(200, 100, 40, 0, Math.PI * 2);
+            ctx.fill();
+
+            platforms.forEach(plat => {
+                ctx.fillStyle = plat.col;
+                ctx.fillRect(plat.x, plat.y, plat.w, plat.w > 50 && plat.h > 50 ? canvas.height - plat.y : plat.h);
                 
-                const cameraOffset = new THREE.Vector3(0, 4, 10); 
-                cameraOffset.applyAxisAngle(new THREE.Vector3(1, 0, 0), pitch);
-                cameraOffset.applyAxisAngle(new THREE.Vector3(0, 1, 0), yaw);
-                
-                camera.position.copy(playerMesh.position).add(cameraOffset);
-                camera.lookAt(playerMesh.position.x, playerMesh.position.y + 0.5, playerMesh.position.z);
+                ctx.strokeStyle = '#000';
+                ctx.lineWidth = 2;
+                ctx.strokeRect(plat.x, plat.y, plat.w, plat.w > 50 && plat.h > 50 ? canvas.height - plat.y : plat.h);
+            });
 
-                let moveX = 0, moveZ = 0;
-                if (keys.w) moveZ -= 1; if (keys.s) moveZ += 1;
-                if (keys.a) moveX -= 1; if (keys.d) moveX += 1;
+            Object.keys(otherPlayers).forEach(id => {
+                let p = otherPlayers[id];
+                ctx.fillStyle = '#e45c10';
+                ctx.fillRect(p.x, p.y, pWidth, pHeight);
+                ctx.strokeStyle = '#000';
+                ctx.strokeRect(p.x, p.y, pWidth, pHeight);
+            });
 
-                let currentSpeed = NORMAL_SPEED;
+            ctx.fillStyle = '#fc9838';
+            ctx.fillRect(px, py, pWidth, pHeight);
+            ctx.strokeStyle = '#000';
+            ctx.strokeRect(px, py, pWidth, pHeight);
 
-                if (keys.shift && isGrounded && (keys.w || keys.a || keys.s || keys.d)) {
-                    if (!isSliding) { isSliding = true; playerMesh.scale.y = 0.5; }
-                    currentSpeed = SLIDE_SPEED;
-                } else if (!keys.shift && isSliding) {
-                    isSliding = false; playerMesh.scale.y = 1.0;
-                }
+            ctx.fillStyle = '#b84418';
+            ctx.fillRect(px + 5, py, pWidth - 10, 12);
 
-                let inputVec = new THREE.Vector3(moveX, 0, moveZ).normalize();
-inputVec.applyAxisAngle(new THREE.Vector3(0, 1, 0), yaw);velocity.x = inputVec.x * currentSpeed;velocity.z = inputVec.z * currentSpeed;if (!isWallRunning) velocity.y += GRAVITY;else velocity.y = -0.01;playerMesh.position.add(velocity);let pX = playerMesh.position.x; let pY = playerMesh.position.y; let pZ = playerMesh.position.z;let pHeight = isSliding ? 1.0 : 2.0;isGrounded = false; let hitPlatformIdx = -1;platforms.forEach((plat, idx) => {let box = new THREE.Box3().setFromObject(plat);if (pX + 0.5 > box.min.x && pX - 0.5 < box.max.x && pZ + 0.5 > box.min.z && pZ - 0.5 < box.max.z) {if (pY - pHeight/2 <= box.max.y && pY - pHeight/2 >= box.max.y + velocity.y - 0.1) {playerMesh.position.y = box.max.y + pHeight/2; velocity.y = 0; isGrounded = true; hitPlatformIdx = idx;}}});bouncePads.forEach(pad => {let box = new THREE.Box3().setFromObject(pad);if (pX + 0.5 > box.min.x && pX - 0.5 < box.max.x && pZ + 0.5 > box.min.z && pZ - 0.5 < box.max.z) {if (pY - pHeight/2 <= box.max.y && pY - pHeight/2 >= box.max.y + velocity.y - 0.2) {velocity.y = JUMP_FORCE * 1.8; isGrounded = false;}}});movingPlatforms.forEach(p => {let box = new THREE.Box3().setFromObject(p.mesh);if (pX + 0.5 > box.min.x && pX - 0.5 < box.max.x && pZ + 0.5 > box.min.z && pZ - 0.5 < box.max.z) {if (pY - pHeight/2 <= box.max.y && pY - pHeight/2 >= box.max.y + velocity.y - 0.1) {playerMesh.position.y = box.max.y + pHeight/2; playerMesh.position.x += p.speed * p.dir; velocity.y = 0; isGrounded = true;}}});if (isGrounded && hitPlatformIdx > myScore) {myScore = hitPlatformIdx; document.getElementById('my-score').innerText = myScore; socket.emit('updateScore', myScore);}if (!isGrounded && keys.w) {let onWall = false;platforms.forEach(plat => {let box = new THREE.Box3().setFromObject(plat);if (pY > box.min.y && pY < box.max.y) {let distLeft = Math.abs((pX - 0.6) - box.max.x); let distRight = Math.abs((pX + 0.6) - box.min.x);if ((distLeft < 0.3 || distRight < 0.3) && pZ > box.min.z && pZ < box.max.z) onWall = true;}});isWallRunning = onWall;} else { isWallRunning = false; }if (keys.space) {if (isGrounded) { velocity.y = JUMP_FORCE; isGrounded = false; }else if (isWallRunning) { velocity.y = JUMP_FORCE * 1.1; velocity.x += Math.sin(yaw) * 0.15; isWallRunning = false; }}if (playerMesh.position.y < -15) { playerMesh.position.set(0, 3, 0); velocity.set(0, 0, 0); isGrounded = true; }socket.emit('playerMovement', { x: playerMesh.position.x, y: playerMesh.position.y, z: playerMesh.position.z });}renderer.render(scene, camera);}function onWindowResize() {camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix();renderer.setSize(window.innerWidth, window.innerHeight);}window.onload = () => { init(); animate(); };
+            ctx.restore();
+
+            requestAnimationFrame(loop);
+        }
+
+        requestAnimationFrame((timestamp) => {
+            lastFpsUpdate = timestamp;
+            loop(timestamp);
+        });
+    </script>
+</body>
+</html>
