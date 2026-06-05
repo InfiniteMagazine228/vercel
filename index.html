@@ -2,7 +2,7 @@
 <html lang="vi">
 <head>
     <meta charset="UTF-8">
-    <title>3D Pure Engine Parkour Online</title>
+    <title>3D Pure Engine Parkour Online - Final Edition</title>
     <style>
         body { margin: 0; overflow: hidden; background: #050510; font-family: 'Segoe UI', sans-serif; color: white; user-select: none; }
         canvas { display: block; width: 100vw; height: 100vh; }
@@ -11,7 +11,6 @@
         .key { background: #333; padding: 2px 6px; border-radius: 3px; font-weight: bold; color: #00f0ff; }
         h3 { margin: 0 0 8px 0; border-bottom: 1px solid #333; padding-bottom: 4px; }
     </style>
-    <!-- Tải Socket.io từ CDN để lo phần Online -->
     <script src="https://cloudflare.com"></script>
 </head>
 <body>
@@ -19,7 +18,7 @@
     <div id="ui">
         <h3 style="color:#00f0ff;">🏃 CYBER PARKOUR 3D</h3>
         <p>🕹️ Chạy: <span class="key">W</span> <span class="key">A</span> <span class="key">S</span> <span class="key">D</span></p>
-        <p>🎥 Camera: Phím mũi tên <span class="key">←</span> <span class="key">→</span></p>
+        <p>🎥 Camera: <b>Giữ chuột trái + Kéo rê để xoay nhìn</b></p>
         <p>🚀 Nhảy / Chạy tường: <span class="key">Space</span></p>
         <p>⚡ Trượt (Slide): Giữ <span class="key">Shift trái</span></p>
         <p>📈 Điểm của bạn: <span id="my-score" style="color:#00ff88; font-weight:bold;">0</span> bục</p>
@@ -34,9 +33,7 @@
     <canvas id="canvas"></canvas>
 
     <script>
-        // Cấu hình socket tương thích Vercel Serverless (HTTP Polling)
         const socket = io({ path: '/socket.io/', transports: ['polling'] });
-
         const canvas = document.getElementById('canvas');
         const ctx = canvas.getContext('2d');
 
@@ -47,7 +44,7 @@
         window.addEventListener('resize', resize);
         resize();
 
-        // 🏃 VỊ TRÍ VÀ TRẠNG THÁI NHÂN VẬT CHÍNH (BẠN)
+        // 🏃 TRẠNG THÁI NHÂN VẬT CHÍNH
         let px = 0, py = 2, pz = 5; 
         let vx = 0, vy = 0, vz = 0; 
         let yaw = 0, pitch = -0.15;  
@@ -56,11 +53,32 @@
         let isSliding = false;
         let myScore = 0;
 
-        // 🌐 LƯU TRỮ NGƯỜI CHƠI KHÁC TRONG PHÒNG
+        // 🌐 NGƯỜI CHƠI KHÁC
         let otherPlayers = {};
 
-        let keys = { w: false, a: false, s: false, d: false, space: false, shift: false, arrowLeft: false, arrowRight: false };
+        let keys = { w: false, a: false, s: false, d: false, space: false, shift: false };
+        let isMouseDown = false;
+        let previousMousePosition = { x: 0, y: 0 };
 
+        // 🎥 ĐIỀU KHIỂN CHUỘT: GIỮ VÀ KÉO ĐỂ XOAY (BẢO ĐẢM KHÔNG BAO GIỜ ĐƠ)
+        window.addEventListener('mousedown', (e) => {
+            isMouseDown = true;
+            previousMousePosition = { x: e.clientX, y: e.clientY };
+        });
+        window.addEventListener('mouseup', () => isMouseDown = false);
+        window.addEventListener('mousemove', (e) => {
+            if (!isMouseDown) return;
+            const deltaX = e.clientX - previousMousePosition.x;
+            const deltaY = e.clientY - previousMousePosition.y;
+
+            yaw -= deltaX * 0.005;   // Xoay trái/phải thuận chiều
+            pitch -= deltaY * 0.004; // Xoay lên/xuống thuận chiều
+            pitch = Math.max(-0.6, Math.min(0.6, pitch)); // Giới hạn góc nhìn tránh lộn ngược
+
+            previousMousePosition = { x: e.clientX, y: e.clientY };
+        });
+
+        // ĐIỀU KHIỂN BÀN PHÍM
         window.addEventListener('keydown', (e) => handleKey(e, true));
         window.addEventListener('keyup', (e) => handleKey(e, false));
 
@@ -71,43 +89,39 @@
             if(e.code === 'KeyD') keys.d = isDown;
             if(e.code === 'Space') keys.space = isDown;
             if(e.code === 'ShiftLeft') keys.shift = isDown;
-            if(e.code === 'ArrowLeft') keys.arrowLeft = isDown;
-            if(e.code === 'ArrowRight') keys.arrowRight = isDown;
         }
 
-        // 🧱 DANH SÁCH BỤC CHƯỚNG NGẠI VẬT (MAP DESIGN)
+        // 🧱 BẢN ĐỒ CÁC BỤC CHƯỚNG NGẠI VẬT 3D
         let platforms = [
             { x: 0,  y: 0,   z: 0,   w: 12, h: 1, d: 12, type: 'normal', col: '#151525' }, // Xuất phát
             { x: 0,  y: 1.5, z: -14, w: 4,  h: 1, d: 4,  type: 'normal', col: '#00f0ff' }, // Bục 1
             { x: 6,  y: 3.5, z: -24, w: 4,  h: 1, d: 4,  type: 'normal', col: '#00f0ff' }, // Bục 2
-            { x: -6, y: 5.5, z: -36, w: 1,  h: 5, d: 12, type: 'wall',   col: '#ff007f' }, // Tường Chạy WallRun
+            { x: -6, y: 5.5, z: -36, w: 1,  h: 5, d: 12, type: 'wall',   col: '#ff007f' }, // Tường Wall Run
             { x: 0,  y: 4.5, z: -50, w: 6,  h: 1, d: 6,  type: 'normal', col: '#00f0ff' }, // Bục 3
-            { x: 0,  y: 4.7, z: -50, w: 2,  h: 0.4, d: 2, type: 'bounce', col: '#ffff00' }, // Bục lò xo nhảy cao
+            { x: 0,  y: 4.7, z: -50, w: 2,  h: 0.4, d: 2, type: 'bounce', col: '#ffff00' }, // Bục lò xo
             { x: 0,  y: 10,  z: -68, w: 4,  h: 1, d: 4,  type: 'moving', col: '#9900ff', startX: 0, range: 6, speed: 0.06, dir: 1 }, // Bục di động
-            { x: 0,  y: 9,   z: -88, w: 10, h: 1, d: 10, type: 'normal', col: '#00ff88' }  // Vạch Đích thành công
+            { x: 0,  y: 9,   z: -88, w: 10, h: 1, d: 10, type: 'normal', col: '#00ff88' }  // Vạch Đích
         ];
 
-        // 🧮 THUẬT TOÁN CHIẾU TOẠ ĐỘ 3D VỀ MÀN HÌNH CHUYỂN ĐỘNG THUẬN HƯỚNG
+        // 🧮 THUẬT TOÁN ĐỒ HỌA 3D TOÁN HỌC THUẦN TÚY
         function project(x, y, z) {
             let dx = x - px;
-            let dy = y - (py + (isSliding ? 0.1 : 0.6)); // Hạ thấp mắt nhìn camera khi trượt dài
+            let dy = y - (py + (isSliding ? 1.8 : 2.5)); // Đặt camera ở góc nhìn thứ 3, hơi cao phía sau gáy nhân vật
             let dz = z - pz;
 
-            // Xoay ma trận theo hướng Yaw (Trái/Phải)
+            // Xoay ma trận camera
             let rx = dx * Math.cos(yaw) - dz * Math.sin(yaw);
             let rz = dx * Math.sin(yaw) + dz * Math.cos(yaw);
-            
-            // Xoay ma trận theo hướng Pitch (Lên/Xuống cố định)
             let ry = dy * Math.cos(pitch) - rz * Math.sin(pitch);
             let fz = dy * Math.sin(pitch) + rz * Math.cos(pitch);
 
-            if (fz <= 0.1) return null; // Vật ở sau lưng
+            if (fz <= 0.1) return null;
 
-            const fov = 400; // Tiêu cự phối cảnh xa gần
+            const fov = 450; 
             return { x: canvas.width / 2 + (rx * fov) / fz, y: canvas.height / 2 + (ry * fov) / fz, scale: fov / fz, depth: fz };
         }
 
-        // 🎨 HÀM TỰ VẼ KHỐI LẬP PHƯƠNG 3D THỦ CÔNG LÊN CANVAS 2D
+        // HÀM TỰ VẼ KHỐI 3D LÊN CANVAS 2D
         function drawCube(x, y, z, w, h, d, color) {
             let hw = w/2, hh = h/2, hd = d/2;
             let vertices = [
@@ -119,32 +133,32 @@
 
             let pts = vertices.map(v => project(v.x, v.y, v.z));
             let faces = [
-               ,,,,,
+                [0, 1, 2, 3], [4, 5, 6, 7], [0, 4, 7, 3],
+                [1, 5, 6, 2], [0, 1, 5, 4], [3, 2, 6, 7]
             ];
 
             faces.forEach(f => {
-                if (!pts[f] || !pts[f] || !pts[f] || !pts[f]) return;
+                if (!pts[f[0]] || !pts[f[1]] || !pts[f[2]] || !pts[f[3]]) return;
                 ctx.beginPath();
-                ctx.moveTo(pts[f].x, pts[f].y);
-                ctx.lineTo(pts[f].x, pts[f].y);
-                ctx.lineTo(pts[f].x, pts[f].y);
-                ctx.lineTo(pts[f].x, pts[f].y);
+                ctx.moveTo(pts[f[0]].x, pts[f[0]].y);
+                ctx.lineTo(pts[f[1]].x, pts[f[1]].y);
+                ctx.lineTo(pts[f[2]].x, pts[f[2]].y);
+                ctx.lineTo(pts[f[3]].x, pts[f[3]].y);
                 ctx.closePath();
                 ctx.fillStyle = color;
                 ctx.fill();
-                ctx.strokeStyle = 'rgba(255,255,255,0.15)'; // Viền neon khối 3D rực rỡ
+                ctx.strokeStyle = 'rgba(255,255,255,0.18)'; 
                 ctx.stroke();
             });
         }
 
-        // 🌐 KẾT NỐI MULTIPLAYER ONLINE TRÊN VERCEL POLLING
+        // 🌐 KẾT NỐI MULTIPLAYER ONLINE TRÊN VERCEL
         socket.on('currentPlayers', (players) => {
             Object.keys(players).forEach((id) => {
                 if (id !== socket.id) otherPlayers[id] = players[id];
             });
             updateLeaderboard(players);
         });
-
         socket.on('newPlayer', (info) => { otherPlayers[info.id] = info; });
         socket.on('playerMoved', (info) => { if (otherPlayers[info.id]) otherPlayers[info.id] = info; });
         socket.on('playerDisconnected', (id) => { delete otherPlayers[id]; });
@@ -155,18 +169,12 @@
             list.innerHTML = '';
             Object.keys(players).forEach(id => {
                 const name = id === socket.id ? "Bạn 😎" : `User_${id.substring(0,4)}`;
-                const score = players[id].score || 0;
-                list.innerHTML += `<p style="margin:4px 0;">${name}: <b style="color:#00ff88">${score} bục</b></p>`;
+                list.innerHTML += `<p style="margin:4px 0;">${name}: <b style="color:#00ff88">${players[id].score || 0} bục</b></p>`;
             });
         }
 
-        // 🎮 VÒNG LẶP CHÍNH CHẠY GAME & XỬ LÝ 10 TÍNH NĂNG VẬT LÝ PARKOUR
+        // 🎮 VÒNG LẶP LOGIC VẬT LÝ & ĐỒ HỌA GAME
         function loop() {
-            // 1. Xoay hướng nhìn camera bằng phím mũi tên thuận chiều quay
-            if (keys.arrowLeft) yaw += 0.035;
-            if (keys.arrowRight) yaw -= 0.035;
-
-            // 2. Tính toán Vector di chuyển WASD chuẩn hướng nhìn
             let moveX = 0, moveZ = 0;
             if (keys.w) moveZ -= 1; if (keys.s) moveZ += 1;
             if (keys.a) moveX -= 1; if (keys.d) moveX += 1;
@@ -174,10 +182,10 @@
             let currentSpeed = 0.08;
             let stateText = "Đang đứng";
 
-            // 3. TÍNH NĂNG SLIDE (TRƯỢT DÀI KHI GIỮ SHIFT)
+            // Cơ chế Slide (Trượt dài)
             if (keys.shift && isGrounded && (keys.w || keys.a || keys.s || keys.d)) {
                 isSliding = true;
-                currentSpeed = 0.15; // Trượt với tốc độ cao lao vút lên trước
+                currentSpeed = 0.15;
                 stateText = "🔥 Đang trượt (Slide)";
             } else {
                 isSliding = false;
@@ -188,25 +196,19 @@
             let mag = Math.sqrt(fx*fx + fz*fz);
             if(mag > 0) { 
                 if(stateText === "Đang đứng") stateText = "🏃 Đang chạy bộ";
-                vx = (fx / mag) * currentSpeed; 
-                vz = (fz / mag) * currentSpeed; 
+                vx = (fx / mag) * currentSpeed; vz = (fz / mag) * currentSpeed; 
             } else { 
                 vx *= 0.8; vz *= 0.8; 
             }
 
-            // 4. ÁP DỤNG TRỌNG LỰC RƠI
-            if (!isWallRunning) {
-                vy -= 0.0055;
-            } else {
-                vy = -0.008; // Giảm tối đa trọng lực khi bám tường chạy dọc (Wall Run)
-                stateText = "🧱 Đang chạy trên tường";
-            }
+            if (!isWallRunning) vy -= 0.0055;
+            else { vy = -0.008; stateText = "🧱 Đang chạy tường"; }
 
-            // Cập nhật vị trí dự kiến người chơi
             px += vx; py += vy; pz += vz;
 
-            // 5. CẬP NHẬT VỊ TRÍ CÁC BỤC DI ĐỘNG (MOVING PLATFORM)
+            // Di chuyển bục di động
             platforms.forEach(plat => {
                 if (plat.type === 'moving') {
                     plat.x += plat.speed * plat.dir;
-if (Math.abs(plat.x - plat.startX) > plat.range) plat.dir *= -1;}});// 6. XỬ LÝ HỆ THỐNG VA CHẠM THỰC TẾ (COLLISION DETECTION VÀ STANDING)isGrounded = false;let hitPlatformIdx = -1;platforms.forEach((plat, idx) => {let hw = plat.w/2, hd = plat.d/2, hh = plat.h/2;// Kiểm tra phạm vi không gian bao quanh bục hình hộp chữ nhậtif (px >= plat.x - hw && px <= plat.x + hw && pz >= plat.z - hd && pz <= plat.z + hd) {let topY = plat.y + hh;// Nếu chân nhân vật chạm xuống mặt bục khi đang rơi từ trên xuốngif (py <= topY && py >= topY + vy - 0.25) {py = topY;vy = 0;isGrounded = true;hitPlatformIdx = idx;// 7. TÍNH NĂNG BỤC LÒ XO (BOUNCE PAD) - Bật bắn siêu caoif (plat.type === 'bounce') {vy = 0.165;isGrounded = false;}// Kéo người đi tịnh tiến theo bục di độngif (plat.type === 'moving') {px += plat.speed * plat.dir;}}}});// 8. TÍNH ĐIỂM ONLINE KHI QUA MÀN THÀNH CÔNGif (isGrounded && hitPlatformIdx > myScore) {myScore = hitPlatformIdx;document.getElementById('my-score').innerText = myScore;socket.emit('updateScore', myScore); // Đẩy điểm mới lên Serverless Vercel}// 9. TÍNH NĂNG WALL RUN (LEO TƯỜNG/CHẠY TƯỜNG)if (!isGrounded && keys.w) {let onWall = false;platforms.forEach(plat => {if (plat.type === 'wall') {let hw = plat.w/2, hd = plat.d/2;// Kiểm tra nếu nhân vật áp sát cạnh tường màu hồng hồngif (py >= plat.y - plat.h/2 && py <= plat.y + plat.h/2) {if (Math.abs(px - plat.x) <= hw + 0.6 && pz >= plat.z - hd && pz <= plat.z + hd) {onWall = true;}}}});isWallRunning = onWall;} else {isWallRunning = false;}// Lệnh nhảy Space (Hỗ trợ nhảy thường hoặc đạp tường bật xa)if (keys.space) {if (isGrounded) { vy = 0.115; isGrounded = false; }else if (isWallRunning) { vy = 0.125; px += Math.sin(yaw) * 0.2; isWallRunning = false; } // Đạp nhảy tường bật ra ngoài}if(!isGrounded && !isWallRunning) stateText = "✈️ Đang bay trên không";document.getElementById('state-text').innerText = stateText;// 10. VÙNG CHẾT HỒI SINH (DEAD ZONE RESPAWN): Rơi khỏi bục rớt vực thẳm tự động về vị trí vạch xuất phát ban đầuif (py < -15) { px = 0; py = 2; pz = 5; vx = 0; vy = 0; vz = 0; }// 🌐 LIÊN TỤC GỬI VỊ TRÍ ĐỒNG BỘ ĐỂ VẼ BẢN THÂN TRÊN MÀN HÌNH NGƯỜI CHƠI KHÁCsocket.emit('playerMovement', { x: px, y: py, z: pz });// 🎨 XÓA TOÀN BỘ MÀN HÌNH CŨ ĐỂ VẼ KHUNG CẢNH MỚI 3D KHÔNG GIẬT LAGctx.clearRect(0, 0, canvas.width, canvas.height);// Gom bục map và các nhân vật online khác vào một mảng để sắp xếp thứ tự vẽ từ xa tới gần (Depth Sorting)let renderQueue = [];platforms.forEach(plat => {renderQueue.push({ zIndex: plat.z, draw: () => drawCube(plat.x, plat.y, plat.z, plat.w, plat.h, plat.d, plat.col) });});Object.keys(otherPlayers).forEach(id => {let p = otherPlayers[id];// Vẽ người chơi khác trong phòng dưới dạng khối hộp hình trụ màu đỏ Neon rực rỡrenderQueue.push({ zIndex: p.z, draw: () => drawCube(p.x, p.y, p.z, 1, 2, 1, '#ff0055') });});// Sắp xếp vẽ từ vật ở xa gáy camera nhất tới vật ở gần nhất để loại bỏ hoàn toàn lỗi đè hình không gian 3DrenderQueue.sort((a, b) => a.zIndex - b.zIndex).forEach(item => item.draw());requestAnimationFrame(loop);}loop();
+                    if (Math.abs(plat.x - plat.startX) > plat.range) plat.dir *= -1;
+}});// Xử lý va chạm đứng trên bụcisGrounded = false;let hitPlatformIdx = -1;platforms.forEach((plat, idx) => {let hw = plat.w/2, hd = plat.d/2, hh = plat.h/2;if (px >= plat.x - hw && px <= plat.x + hw && pz >= plat.z - hd && pz <= plat.z + hd) {let topY = plat.y + hh;if (py <= topY && py >= topY + vy - 0.25) {py = topY; vy = 0; isGrounded = true; hitPlatformIdx = idx;if (plat.type === 'bounce') { vy = 0.165; isGrounded = false; }if (plat.type === 'moving') px += plat.speed * plat.dir;}}});// Tính điểmif (isGrounded && hitPlatformIdx > myScore) {myScore = hitPlatformIdx;document.getElementById('my-score').innerText = myScore;socket.emit('updateScore', myScore);}// Cơ chế Wall Runif (!isGrounded && keys.w) {let onWall = false;platforms.forEach(plat => {if (plat.type === 'wall') {if (py >= plat.y - plat.h/2 && py <= plat.y + plat.h/2) {if (Math.abs(px - plat.x) <= plat.w/2 + 0.6 && pz >= plat.z - plat.d/2 && pz <= plat.z + plat.d/2) onWall = true;}}});isWallRunning = onWall;} else { isWallRunning = false; }// Nút nhảy Spaceif (keys.space) {if (isGrounded) { vy = 0.115; isGrounded = false; }else if (isWallRunning) { vy = 0.125; px += Math.sin(yaw) * 0.2; isWallRunning = false; }}if(!isGrounded && !isWallRunning) stateText = "✈️ Đang trên không";document.getElementById('state-text').innerText = stateText;// Vực sâu hồi sinhif (py < -15) { px = 0; py = 2; pz = 5; vx = 0; vy = 0; vz = 0; }// Đồng bộ vị trí lên Vercelsocket.emit('playerMovement', { x: px, y: py, z: pz });// RENDER KHUNG CẢNH 3Dctx.clearRect(0, 0, canvas.width, canvas.height);let renderQueue = [];// Đưa map vào hàng đợi vẽplatforms.forEach(plat => {renderQueue.push({ zIndex: plat.z, draw: () => drawCube(plat.x, plat.y, plat.z, plat.w, plat.h, plat.d, plat.col) });});// Đưa người chơi khác vào hàng đợi vẽ (Màu đỏ neon rực rỡ)Object.keys(otherPlayers).forEach(id => {let p = otherPlayers[id];renderQueue.push({ zIndex: p.z, draw: () => drawCube(p.x, p.y, p.z, 1, 2, 1, '#ff0055') });});// Vẽ chính bản thân bạn dưới dạng một khối hộp màu xanh Neon (Góc nhìn từ sau gáy)renderQueue.push({ zIndex: pz, draw: () => drawCube(px, py, pz, 1, 2, 1, '#00f0ff') });// Sắp xếp vẽ từ xa tới gần (Depth Sorting) giúp 3D chuẩn hóa hoàn toànrenderQueue.sort((a, b) => a.zIndex - b.zIndex).forEach(item => item.draw());requestAnimationFrame(loop);}loop();
